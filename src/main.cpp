@@ -1,239 +1,187 @@
-#include <Arduino.h>
-#include <string>
-#include <vector>
-#include <sstream> // Thư viện quan trọng để tách chuỗi
-#include <Wire.h> 
-#include <LiquidCrystal_I2C.h> 
-
-// Include các file logic của bạn
+// src/tasks/TaskManager.cpp
+#include "tasks/TaskManager.h"
 #include "app/inventory.h"
-#include "util/Point.h"
-#include "app/inventory_compressor.h"
+#include "config/SystemConfig.h"
+#include <WiFi.h>
+#include <PubSubClient.h>
 
-// --- CẤU HÌNH ---
-// Địa chỉ LCD 0x27, 16 cột 2 dòng
-LiquidCrystal_I2C lcd(0x27, 16, 2);
-InventoryManager myWarehouse;
-String inputString = "";         
+// --- CẤU HÌNH WIFI / MQTT (Đã chỉnh theo mạng nhà bạn) ---
+const char* ssid = "THD";
+const char* password = "hcmutk23@";
+const char* mqtt_server = "192.168.1.4"; 
+const int mqtt_port = 1883;
 
-// Hàm in ra LCD (rút gọn)
-void logToLCD(String line1, String line2 = "") {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print(line1);
-    if (line2 != "") {
-        lcd.setCursor(0, 1);
-        lcd.print(line2);
+WiFiClient espClient;
+PubSubClient client(espClient);
+InventoryManager* myWarehouse;
+
+// Queue Handles để gửi lệnh xuống các task khác
+QueueHandle_t g_inputQ; 
+QueueHandle_t g_displayQ;
+
+// --- HÀM XỬ LÝ KHI NHẬN TIN NHẮN TỪ NODE-RED (CALLBACK) ---
+// Đã sửa 'byte' thành 'uint8_t' để tránh lỗi biên dịch
+void mqttCallback(char* topic, uint8_t* payload, unsigned int length) {
+    String message;
+    for (int i = 0; i < length; i++) {
+        message += (char)payload[i];
+    }
+    Serial.print("[MQTT] Received: ");
+    Serial.println(message);
+
+    // Xử lý lệnh từ Dashboard
+    if (String(topic) == "warehouse/control") {
+        SystemMessage msg;
+        
+        if (message == "SYNC_NOW") {
+            // Ra lệnh cho hệ thống Sync
+            msg.type = EVENT_SYNC_CLOUD;
+            xQueueSend(g_inputQ, &msg, 10);
+            Serial.println("[CMD] Remote Sync Triggered!");
+        }
+        else if (message == "CLEAR_SCREEN") {
+            msg.type = EVENT_UPDATE_LCD;
+            snprintf(msg.payload, 32, " "); // Xóa dòng 2
+            xQueueSend(g_displayQ, &msg, 10);
+        }
     }
 }
 
-void setup() {
-    Serial.begin(115200);
-    lcd.init();
-    lcd.backlight();
-
-    logToLCD("KHO TONG HOP", "Ready...");
-    
-    Serial.println("\n\n==========================================");
-    Serial.println("--- HE THONG QUAN LY KHO (FULL MODE) ---");
-    Serial.println("Cu phap lenh:");
-    Serial.println("1. ADD <Ten> <SL> <Attr1> <Val1> <Attr2> <Val2> ...");
-    Serial.println("   VD: ADD AoThun 10 Size 39 Color 1");
-    Serial.println("2. FIND <Attr> <Val>");
-    Serial.println("   VD: FIND Size 39");
-    Serial.println("3. SHOW");
-    Serial.println("4. TEST");
-    Serial.println("5. CLEAR");
-    Serial.println("==========================================\n");
-    Serial.print(">> "); 
+// --- HÀM HỖ TRỢ HIỆU NĂNG ---
+void printSystemPerformance(const char* taskName) {
+    uint32_t freeHeap = esp_get_free_heap_size();
+    UBaseType_t highWaterMark = uxTaskGetStackHighWaterMark(NULL); 
+    // Serial.printf("[%s] PERF >> Heap: %d | Stack: %d\n", taskName, freeHeap, highWaterMark);
 }
 
-void processCommand(String commandArduino) {
-    // Chuyển String Arduino sang std::string để dùng stringstream
-    std::string cmdStd = commandArduino.c_str();
-    std::stringstream ss(cmdStd);
+void setupWiFi() {
+    Serial.print("[WIFI] Connecting to ");
+    Serial.println(ssid);
     
-    std::string action;
-    ss >> action; // Đọc từ đầu tiên (ADD, SHOW, FIND...)
+    // Chế độ Station (Kết nối vào Router nhà)
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
     
-    // Chuyển action thành chữ hoa để so sánh
-    for (auto & c: action) c = toupper(c);
-
-    if (action == "HELP") {
-        Serial.println("\n--- HUONG DAN ---");
-        Serial.println("Nhap: ADD <Ten> <SL> [ThuocTinh] [GiaTri]...");
-        Serial.println("VD:   ADD GheGo 20 Cao 100 Rong 50");
-        
-    } else if (action == "SHOW") {
-        Serial.println("\n[DANH SACH KHO HANG]");
-        if (myWarehouse.size() == 0) {
-            Serial.println("(Kho rong)");
-            logToLCD("Kho dang rong", "0 san pham");
-        } else {
-            // In ra Serial chi tiết
-            Serial.println(myWarehouse.toString().c_str());
-            // In ra LCD tóm tắt
-            logToLCD("Hien thi kho", String(myWarehouse.size()) + " loai SP");
+    int attempt = 0;
+    while (WiFi.status() != WL_CONNECTED) {
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+        Serial.print(".");
+        attempt++;
+        if (attempt > 20) { // Nếu 10s không kết nối được
+            Serial.println("\n[WIFI] Connect failed! Check Info.");
+            // Không block vĩnh viễn, để hệ thống vẫn chạy offline
+            break; 
         }
-
-    } else if (action == "ADD") {
-        // Cấu trúc: ADD <Name> <Qty> <Attr1> <Val1> <Attr2> <Val2> ...
-        std::string name;
-        int qty;
-        
-        // Cố gắng đọc tên và số lượng
-        if (ss >> name >> qty) {
-            List1D<InventoryAttribute> attrs;
-            
-            // Đọc tiếp các cặp Thuộc tính - Giá trị (nếu có)
-            std::string attrName;
-            double attrVal;
-            while (ss >> attrName >> attrVal) {
-                attrs.add(InventoryAttribute(attrName, attrVal));
-            }
-            
-            myWarehouse.addProduct(attrs, name, qty);
-            
-            Serial.print("\n-> Da them: ");
-            Serial.print(name.c_str());
-            Serial.print(" (SL: ");
-            Serial.print(qty);
-            Serial.println(")");
-            Serial.print("   Voi cac thuoc tinh: ");
-            Serial.println(attrs.toString().c_str());
-
-            logToLCD("Da them:", String(name.c_str()));
-        } else {
-            Serial.println("\nLoi: Thieu Ten hoac So luong!");
-            Serial.println("Dung: ADD <Ten> <SL> ...");
-        }
-
-    } else if (action == "FIND") {
-        // Cấu trúc: FIND <Attr> <Val>
-        std::string attrName;
-        double val;
-        
-        if (ss >> attrName >> val) {
-            Serial.print("\n-> Dang tim: ");
-            Serial.print(attrName.c_str());
-            Serial.print(" = ");
-            Serial.println(val);
-            
-            // Tìm biên độ +/- 0.01 để xử lý sai số số thực
-            List1D<string> results = myWarehouse.query(attrName, val - 0.01, val + 0.01, 1, true);
-            
-            Serial.print("Ket qua: ");
-            Serial.println(results.toString().c_str());
-            
-            if (results.size() > 0) {
-                // Lấy tên sản phẩm đầu tiên tìm thấy đưa lên LCD
-                String firstItem = results.get(0).c_str();
-                logToLCD("Thay " + String(results.size()) + " SP:", firstItem);
-            } else {
-                logToLCD("Tim kiem:", "Khong thay!");
-            }
-        } else {
-            Serial.println("\nLoi: Thieu Ten thuoc tinh hoac Gia tri!");
-            Serial.println("Dung: FIND <TenThuocTinh> <GiaTri>");
-        }
-
-    } else if (action == "TEST") {
-        Serial.println("\n[DEMO NEN DU LIEU THUC TE]");
-        
-        // 1. Lấy một sản phẩm mẫu để test
-        if (myWarehouse.size() == 0) {
-            Serial.println("Loi: Kho rong, hay ADD san pham truoc de test nien!");
-            return;
-        }
-        
-        // Xây dựng cây từ dữ liệu hiện tại
-        InventoryCompressor<4> compressor(&myWarehouse);
-        compressor.buildHuffman();
-        
-        // Lấy sản phẩm đầu tiên
-        List1D<InventoryAttribute> attrs = myWarehouse.getProductAttributes(0);
-        string name = myWarehouse.getProductName(0);
-        
-        // Chuỗi gốc (mô phỏng dữ liệu thô)
-        string rawString = compressor.productToString(attrs, name);
-        
-        // Nén
-        string encoded = compressor.encodeHuffman(attrs, name);
-        
-        // --- TÍNH TOÁN HIỆU QUẢ ---
-        // Kích thước gốc (tính bằng bit): Mỗi ký tự ASCII tốn 8 bit
-        int originalBits = rawString.length() * 8;
-        
-        // Kích thước nén (tính bằng bit): 
-        // Với TreeOrder = 4 (Hệ cơ số 4), mỗi ký tự trong chuỗi encoded (0,1,2,3) tốn 2 bit.
-        // (Nếu TreeOrder = 2 thì tốn 1 bit/ký tự, TreeOrder = 16 thì tốn 4 bit/ký tự)
-        int compressedBits = encoded.length() * 2; 
-        
-        float saving = 100.0 * (originalBits - compressedBits) / originalBits;
-
-        // --- HIỂN THỊ RA MÀN HÌNH ---
-        Serial.println("---------------------------------");
-        Serial.print("San pham: "); Serial.println(name.c_str());
-        Serial.print("Du lieu tho: "); Serial.println(rawString.c_str());
-        Serial.print("-> Original Size: "); Serial.print(originalBits); Serial.println(" bits");
-        
-        Serial.print("Ma Huffman (He 4): "); Serial.println(encoded.c_str());
-        Serial.print("-> Compressed Size: "); Serial.print(compressedBits); Serial.println(" bits");
-        
-        Serial.print("=> TIET KIEM DUOC: "); Serial.print(saving); Serial.println("% DUNG LUONG!");
-        Serial.println("---------------------------------");
-
-        // Hiển thị LCD tóm tắt
-        logToLCD("Nen Huffman", "Giam " + String(saving, 1) + "%");
-        
-        // Test giải nén để đảm bảo toàn vẹn dữ liệu
-        List1D<InventoryAttribute> outAttrs;
-        string outName;
-        compressor.decodeHuffman(encoded, outAttrs, outName);
-        if (outName == name) {
-            Serial.println("Kiem tra toan ven: PASS (Giai nen dung)");
-        } else {
-            Serial.println("Kiem tra toan ven: FAIL");
-        }
-
-    } else if (action == "CLEAR") {
-        myWarehouse = InventoryManager(); 
-        Serial.println("\n-> Da xoa sach kho hang!");
-        logToLCD("Da xoa kho", "Empty!");
-
-    } else {
-        Serial.println("\nLenh khong hop le!");
     }
-
-    Serial.print("\n>> "); 
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\n[WIFI] Connected!");
+        Serial.print("IP Address: ");
+        Serial.println(WiFi.localIP());
+    }
 }
 
-void loop() {
-    if (Serial.available()) {
-        char inChar = (char)Serial.read();
+void reconnectMQTT() {
+    if (!client.connected()) {
+        Serial.print("[MQTT] Connecting to ");
+        Serial.print(mqtt_server);
+        Serial.print("...");
+        
+        // Tạo Client ID ngẫu nhiên để không bị đá văng
+        String clientId = "ESP32Warehouse-" + String(random(0xffff), HEX);
+        
+        if (client.connect(clientId.c_str())) {
+            Serial.println("Done.");
+            // Đăng ký nhận lệnh điều khiển từ Node-RED
+            client.subscribe("warehouse/control");
+        } else {
+            Serial.print("Failed, rc=");
+            Serial.print(client.state());
+            Serial.println(" try again later");
+            // Đợi 2s rồi thử lại (Non-blocking delay trong Loop tốt hơn, ở đây demo đơn giản)
+        }
+    }
+}
 
-        // 1. Xử lý phím Enter (\n hoặc \r) -> Gửi lệnh
-        if (inChar == '\n' || inChar == '\r') {
-            if (inputString.length() > 0) {
-                Serial.println(); // Xuống dòng
-                processCommand(inputString);
-                inputString = ""; // Xóa bộ nhớ đệm để chờ lệnh mới
+void initMockData() {
+    myWarehouse = new InventoryManager();
+    // Reset list rỗng
+    List1D<InventoryAttribute> attrs = List1D<InventoryAttribute>(); 
+    
+    // SP 1
+    attrs.add(InventoryAttribute("RFID", 12345)); 
+    attrs.add(InventoryAttribute("Price", 1000));
+    myWarehouse->addProduct(attrs, "Iphone 15", 10);
+
+    // SP 2
+    attrs = List1D<InventoryAttribute>(); // Reset list cho SP mới
+    attrs.add(InventoryAttribute("RFID", 67890));
+    myWarehouse->addProduct(attrs, "ESP32 Chip", 50);
+    
+    Serial.println("[MANAGER] Data Loaded!");
+}
+
+void TaskManagerFunc(void *pvParameters) {
+    ManagerTaskParams* params = (ManagerTaskParams*)pvParameters;
+    g_inputQ = params->inputQueue;    // Lưu vào biến global để callback dùng
+    g_displayQ = params->displayQueue;
+
+    initMockData();
+    setupWiFi();
+    client.setServer(mqtt_server, mqtt_port);
+    client.setCallback(mqttCallback); // Đăng ký hàm xử lý tin nhắn
+
+    SystemMessage msgIn, msgOut;
+    TickType_t lastPerfCheck = xTaskGetTickCount();
+
+    for (;;) {
+        // Chỉ kết nối MQTT khi đã có WiFi
+        if (WiFi.status() == WL_CONNECTED) {
+            if (!client.connected()) {
+                reconnectMQTT();
+            }
+            client.loop(); // Quan trọng: Duy trì kết nối MQTT
+        }
+
+        // Gửi báo cáo sức khỏe mỗi 5s
+        if (xTaskGetTickCount() - lastPerfCheck > 5000 / portTICK_PERIOD_MS) {
+            printSystemPerformance("MANAGER");
+            lastPerfCheck = xTaskGetTickCount();
+            if (client.connected()) {
+                String status = "Online | Heap: " + String(esp_get_free_heap_size());
+                client.publish("warehouse/status", status.c_str());
             }
         }
-        // 2. Xử lý phím Xóa (Backspace = 8 hoặc Delete = 127)
-        else if (inChar == 8 || inChar == 127) {
-            if (inputString.length() > 0) {
-                // Xóa ký tự cuối cùng trong chuỗi lưu trữ
-                inputString.remove(inputString.length() - 1);
+
+        if (xQueueReceive(g_inputQ, &msgIn, 10) == pdTRUE) {
+            if (msgIn.type == EVENT_SCAN_RFID) {
+                String scannedID = String(msgIn.payload);
+                double searchID = scannedID.toDouble();
+                List1D<string> foundItems = myWarehouse->query("RFID", searchID, searchID, 0, true);
+
+                msgOut.type = EVENT_UPDATE_LCD;
+                if (foundItems.size() > 0) {
+                    string itemName = foundItems.get(0);
+                    snprintf(msgOut.payload, 32, "Found: %s", itemName.c_str());
+                    // Gửi lên Node-RED
+                    client.publish("warehouse/logs", ("Scan: " + String(itemName.c_str())).c_str());
+                } else {
+                    snprintf(msgOut.payload, 32, "Unknown Tag!");
+                    client.publish("warehouse/logs", ("Scan Failed: " + scannedID).c_str());
+                }
+                xQueueSend(g_displayQ, &msgOut, 10);
+            }
+            else if (msgIn.type == EVENT_SYNC_CLOUD) {
+                // Gửi toàn bộ dữ liệu kho lên Node-RED
+                client.publish("warehouse/all", myWarehouse->toString().c_str());
                 
-                // Xóa hiển thị trên màn hình (Thủ thuật: Lùi - Cách - Lùi)
-                Serial.print("\b \b"); 
+                msgOut.type = EVENT_UPDATE_LCD;
+                snprintf(msgOut.payload, 32, "Syncing...");
+                xQueueSend(g_displayQ, &msgOut, 10);
+                
+                vTaskDelay(1000 / portTICK_PERIOD_MS);
+                snprintf(msgOut.payload, 32, "Sync Done!");
+                xQueueSend(g_displayQ, &msgOut, 10);
             }
-        }
-        // 3. Xử lý ký tự thường (Chữ, số, khoảng trắng)
-        else {
-            Serial.print(inChar);   // In ra cho người dùng thấy (Echo)
-            inputString += inChar;  // Lưu vào chuỗi
         }
     }
 }

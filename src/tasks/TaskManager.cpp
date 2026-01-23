@@ -15,7 +15,7 @@ enum AppMode {
 // --- CẤU HÌNH WIFI / MQTT ---
 const char* ssid = "THD";             // Tên WiFi nhà bạn
 const char* password = "hcmutk23@";   // Mật khẩu WiFi
-const char* mqtt_server = "192.168.1.4"; // IP máy tính chạy Node-RED
+const char* mqtt_server = "192.168.1.2"; // IP máy tính chạy Node-RED
 const int mqtt_port = 1883;
 
 WiFiClient espClient;
@@ -94,14 +94,34 @@ void reconnectMQTT() {
     }
 }
 
+void addItem(String hexId, String name, int qty, double price) {
+    List1D<InventoryAttribute> attrs;
+    
+    // QUAN TRỌNG: Chuyển đổi mã Hex (VD: 19D01AB3) sang số Double để lưu trữ
+    // Chúng ta dùng strtoul để xử lý các ký tự A,B,C,D... trong mã thẻ
+    unsigned long rfidDec = strtoul(hexId.c_str(), NULL, 16);
+    
+    attrs.add(InventoryAttribute("RFID", (double)rfidDec));
+    attrs.add(InventoryAttribute("Price", price));
+    
+    myWarehouse->addProduct(attrs, name.c_str(), qty);
+}
+
 void initMockData() {
     myWarehouse = new InventoryManager();
-    // Tạo sẵn 1 món để test
-    List1D<InventoryAttribute> attrs;
-    attrs.add(InventoryAttribute("RFID", 12345)); 
-    attrs.add(InventoryAttribute("Price", 1000));
-    myWarehouse->addProduct(attrs, "Iphone 15", 5); // Có sẵn 5 cái
-    Serial.println("[DATA] Database Initialized");
+
+    // CẤU HÌNH CÁC MÓN ĐỒ CỦA BẠN TẠI ĐÂY
+    // Cú pháp: addItem("MÃ_THẺ", "TÊN_ĐỒ", SỐ_LƯỢNG, GIÁ_TIỀN);
+    
+    addItem("19D01AB3", "Noi com dien",    10, 500000);  // Nồi cơm điện
+    addItem("297124B3", "May xay sinh to", 5,  350000);  // Máy xay
+    addItem("191D1BB3", "Quat dung",       15, 250000);  // Quạt đứng
+    addItem("195623B3", "Ban ui hoi nuoc", 8,  180000);  // Bàn ủi
+    addItem("59B4DCC2", "Am sieu toc",     20, 120000);  // Ấm siêu tốc
+    addItem("2D0F7506", "May say toc",     12, 150000);  // Máy sấy tóc
+    addItem("66E5C901", "Lo vi song",      3,  1200000); // Lò vi sóng
+
+    Serial.println("[DATA] Da nap xong 7 mon do gia dung!");
 }
 
 // --- LOGIC CHÍNH ---
@@ -128,7 +148,7 @@ void TaskManagerFunc(void *pvParameters) {
             // === XỬ LÝ QUÉT THẺ RFID ===
             if (msgIn.type == EVENT_SCAN_RFID) {
                 String scannedStr = String(msgIn.payload);
-                double rfidVal = scannedStr.toDouble();
+                double rfidVal = (double)strtoul(scannedStr.c_str(), NULL, 16);
                 
                 // Tìm xem hàng đã có chưa?
                 // Lưu ý: query trả về List tên, ta cần index để sửa đổi. 

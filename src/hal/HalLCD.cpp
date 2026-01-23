@@ -1,11 +1,16 @@
 // src/hal/HalLCD.cpp
 #include "hal/HalLCD.h"
+#include <Wire.h>
 
 HalLCD::HalLCD() {
     hw_lcd = new LiquidCrystal_I2C(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
 }
 
 void HalLCD::init() {
+    // --- THÊM DÒNG NÀY ĐỂ KÍCH HOẠT CHÂN 33, 32 ---
+    Wire.begin(PIN_LCD_SDA, PIN_LCD_SCL); 
+    // ----------------------------------------------
+
     hw_lcd->init();
     hw_lcd->backlight();
     showMessage("System Booting", "Please Wait...");

@@ -6,8 +6,8 @@
 
 // --- PIN DEFINITIONS (Phù hợp với ESP32 DevKit V1) ---
 #define PIN_SERVO       13
-#define PIN_LCD_SDA     21
-#define PIN_LCD_SCL     22
+#define PIN_LCD_SDA     33
+#define PIN_LCD_SCL     32
 // RFID Pins (SPI)
 #define PIN_RFID_SDA    5
 #define PIN_RFID_SCK    18

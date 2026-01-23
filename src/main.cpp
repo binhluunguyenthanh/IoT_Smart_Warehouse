@@ -72,3 +72,44 @@ void loop() {
     // Ta xóa task này để giải phóng RAM cho hệ thống.
     vTaskDelete(NULL);
 }
+// #include <Arduino.h>
+// #include <Wire.h>
+
+// // Định nghĩa đúng chân bạn đang dùng
+// #define SDA_PIN 33
+// #define SCL_PIN 32
+
+// void setup() {
+//   Serial.begin(115200);
+//   Serial.println("\nDang khoi dong I2C Scanner...");
+  
+//   // Khởi động I2C với chân mới
+//   Wire.begin(SDA_PIN, SCL_PIN);
+// }
+
+// void loop() {
+//   byte error, address;
+//   int nDevices = 0;
+
+//   Serial.println("Dang quet tim thiet bi...");
+
+//   for(address = 1; address < 127; address++ ) {
+//     Wire.beginTransmission(address);
+//     error = Wire.endTransmission();
+
+//     if (error == 0) {
+//       Serial.print("TIM THAY thiet bi I2C tai dia chi: 0x");
+//       if (address < 16) Serial.print("0");
+//       Serial.print(address, HEX);
+//       Serial.println("  !");
+//       nDevices++;
+//     }
+//   }
+  
+//   if (nDevices == 0)
+//     Serial.println("KHONG tim thay thiet bi nao -> Kiem tra lai day noi (long day?), nguon (5V?), hoac doi day SDA/SCL.");
+//   else
+//     Serial.println("Quet hoan tat.\n");
+
+//   delay(5000); // Quét lại sau 5 giây
+// }

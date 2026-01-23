@@ -30,7 +30,8 @@ enum EventType {
     EVENT_IDLE,
     EVENT_SCAN_RFID,    // Quét được thẻ
     EVENT_UPDATE_LCD,   // Cần vẽ lại màn hình
-    EVENT_SYNC_CLOUD    // Cần nén và gửi MQTT
+    EVENT_SYNC_CLOUD,    // Cần nén và gửi MQTT
+    EVENT_EXPORT_CMD
 };
 
 struct SystemMessage {

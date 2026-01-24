@@ -6,15 +6,15 @@
 
 // --- ĐỊNH NGHĨA CÁC CHẾ ĐỘ ---
 enum AppMode {
-    MODE_CHECK = 0, // Chỉ kiểm tra (Mặc định)
-    MODE_IMPORT,    // Nhập kho (Tăng số lượng)
-    MODE_SELL       // Bán hàng qua RFID (Giảm số lượng)
+    MODE_CHECK = 0, // Chỉ kiểm tra (Mặc định - LED Xanh dương)
+    MODE_IMPORT = 1, // Nhập kho (Tăng số lượng - LED Xanh lá)
+    MODE_SELL = 2    // Bán hàng (Để dự phòng, vì giờ ta xuất hàng qua Web là chính)
 };
 
 // --- CẤU HÌNH WIFI / MQTT ---
 const char* ssid = "THD";             
 const char* password = "hcmutk23@";   
-const char* mqtt_server = "192.168.1.3"; 
+const char* mqtt_server = "192.168.1.3"; // Nhớ check lại IP máy tính
 const int mqtt_port = 1883;
 
 WiFiClient espClient;
@@ -24,7 +24,7 @@ InventoryManager* myWarehouse;
 // Biến toàn cục quản lý trạng thái
 QueueHandle_t g_inputQ; 
 QueueHandle_t g_displayQ;
-AppMode currentMode = MODE_CHECK; // Mặc định là chế độ kiểm tra
+int currentMode = MODE_CHECK; // Mặc định là chế độ kiểm tra
 
 // --- HÀM HỖ TRỢ GỬI LOG ---
 void sendLog(String msg) {
@@ -34,7 +34,7 @@ void sendLog(String msg) {
     Serial.println("[LOG] " + msg);
 }
 
-// --- HÀM MỚI: Gửi dữ liệu JSON chuẩn cho Node-RED ---
+// --- HÀM GỬI DỮ LIỆU JSON CHO NODE-RED (Giữ nguyên logic của bạn) ---
 void sendDataToDashboard() {
     if (!client.connected()) return;
 
@@ -46,7 +46,7 @@ void sendDataToDashboard() {
         String pName = String(myWarehouse->getProductName(i).c_str());
         int pQty = myWarehouse->getProductQuantity(i);
         
-        // 2. Lấy giá tiền (Cần duyệt qua attributes để tìm "Price")
+        // 2. Lấy giá tiền (Duyệt attributes)
         double pPrice = 0;
         List1D<InventoryAttribute> attrs = myWarehouse->getProductAttributes(i);
         for(int j=0; j<attrs.size(); j++) {
@@ -56,7 +56,7 @@ void sendDataToDashboard() {
             }
         }
 
-        // 3. Đóng gói thành object JSON: {"name":"...", "qty":..., "price":...}
+        // 3. Đóng gói JSON: {"name":"...", "qty":..., "price":...}
         json += "{\"name\":\"" + pName + "\",";
         json += "\"qty\":" + String(pQty) + ",";
         json += "\"price\":" + String((long)pPrice) + "}"; 
@@ -65,67 +65,77 @@ void sendDataToDashboard() {
         if (i < myWarehouse->size() - 1) json += ",";
     }
     
-    // Kết thúc chuỗi JSON: ]
     json += "]";
 
-    // Gửi vào topic "warehouse/data" với cờ RETAIN = true (Lưu trữ tin nhắn)
+    // Gửi vào topic "warehouse/data"
     client.publish("warehouse/data", json.c_str(), true);
 }
 
-// --- CALLBACK MQTT (NHẬN LỆNH TỪ NODE-RED) ---
+// --- CALLBACK MQTT: ĐÃ SỬA ĐỂ HIỂU JSON TỪ NODE-RED MỚI ---
+// Node-RED gửi: {"cmd":"SET_MODE", "val":1} hoặc {"cmd":"EXPORT", "name":"ABC", "qty":5}
 void mqttCallback(char* topic, uint8_t* payload, unsigned int length) {
     String message;
     for (int i = 0; i < length; i++) message += (char)payload[i];
-    Serial.print("[MQTT] Cmd: "); Serial.println(message);
+    Serial.print("[MQTT] Recv: "); Serial.println(message);
 
     SystemMessage msgOut;
 
-    // Xử lý lệnh điều khiển
     if (String(topic) == "warehouse/control") {
         
-        // 1. Chuyển chế độ
-        if (message == "MODE:IMPORT") {
-            currentMode = MODE_IMPORT;
-            msgOut.type = EVENT_UPDATE_LCD;
-            snprintf(msgOut.payload, 32, "Mode: IMPORT");
-            xQueueSend(g_displayQ, &msgOut, 10);
-            sendLog("Switched to IMPORT Mode");
-            sendDataToDashboard(); // Cập nhật Web ngay
-        } 
-        else if (message == "MODE:SELL") {
-            currentMode = MODE_SELL;
-            msgOut.type = EVENT_UPDATE_LCD;
-            snprintf(msgOut.payload, 32, "Mode: SELL");
-            xQueueSend(g_displayQ, &msgOut, 10);
-            sendLog("Switched to SELL Mode");
-            sendDataToDashboard(); // Cập nhật Web ngay
-        }
-        else if (message == "MODE:CHECK") {
-            currentMode = MODE_CHECK;
-            msgOut.type = EVENT_UPDATE_LCD;
-            snprintf(msgOut.payload, 32, "Mode: CHECK");
-            xQueueSend(g_displayQ, &msgOut, 10);
-            sendLog("Switched to CHECK Mode");
-            sendDataToDashboard(); // Cập nhật Web ngay
+        // === 1. XỬ LÝ LỆNH CHUYỂN CHẾ ĐỘ (SET_MODE) ===
+        // Tìm chuỗi "SET_MODE" trong tin nhắn JSON
+        if (message.indexOf("SET_MODE") >= 0) {
+            // Parse thủ công lấy giá trị "val"
+            int valPos = message.indexOf("\"val\":");
+            if (valPos > 0) {
+                // Lấy ký tự số ngay sau "val":
+                int modeVal = message.substring(valPos + 6).toInt();
+                
+                if (modeVal == 1) {
+                    currentMode = MODE_IMPORT;
+                    sendLog(">> Chuyen che do: NHAP KHO");
+                } else {
+                    currentMode = MODE_CHECK;
+                    sendLog(">> Chuyen che do: GIAM SAT");
+                }
+                
+                // Cập nhật LCD
+                msgOut.type = EVENT_UPDATE_LCD; // Dùng EVENT_UPDATE_DISPLAY thay vì UPDATE_LCD nếu struct task của bạn dùng tên này
+                snprintf(msgOut.payload, 32, "Mode: %s", (currentMode == MODE_IMPORT) ? "IMPORT" : "CHECK");
+                xQueueSend(g_displayQ, &msgOut, 10);
+                
+                sendDataToDashboard(); // Cập nhật lại Web
+            }
         }
 
-        // 2. Xử lý lệnh Xuất Kho Thủ Công (EXPORT:Name:Qty)
-        if (message.startsWith("EXPORT:")) {
-            int firstColon = message.indexOf(':');
-            int secondColon = message.lastIndexOf(':');
+        // === 2. XỬ LÝ LỆNH XUẤT KHO TỪ WEB (EXPORT) ===
+        // JSON: {"cmd": "EXPORT", "name": "Noi com dien", "qty": 2}
+        else if (message.indexOf("EXPORT") >= 0) {
             
-            if (firstColon > 0 && secondColon > firstColon) {
-                String pName = message.substring(firstColon + 1, secondColon);
-                String pQtyStr = message.substring(secondColon + 1);
-                int pQty = pQtyStr.toInt();
+            // a. Tách Tên (Name)
+            int nameStart = message.indexOf("\"name\":\"") + 8;
+            int nameEnd = message.indexOf("\"", nameStart);
+            String pName = message.substring(nameStart, nameEnd);
+            
+            // b. Tách Số lượng (Qty)
+            int qtyStart = message.indexOf("\"qty\":") + 6;
+            int qtyEnd = message.indexOf("}", qtyStart);
+            // Fix lỗi nếu có dấu phẩy phía sau qty
+            int commaPos = message.indexOf(",", qtyStart); 
+            if (commaPos != -1 && commaPos < qtyEnd) qtyEnd = commaPos;
+            
+            int pQty = message.substring(qtyStart, qtyEnd).toInt();
 
+            // c. Gửi lệnh vào Queue để TaskManager xử lý
+            if (pName.length() > 0 && pQty > 0) {
                 SystemMessage exportMsg;
-                exportMsg.type = EVENT_EXPORT_CMD;
+                exportMsg.type = EVENT_EXPORT_CMD; // Đảm bảo đã define cái này trong SystemConfig.h
                 exportMsg.value = pQty; 
                 strncpy(exportMsg.payload, pName.c_str(), sizeof(exportMsg.payload) - 1);
                 exportMsg.payload[sizeof(exportMsg.payload) - 1] = '\0';
 
                 xQueueSend(g_inputQ, &exportMsg, 10);
+                Serial.println("-> Da gui lenh xuat kho vao Queue");
             }
         }
     }
@@ -142,10 +152,9 @@ void setupWiFi() {
     }
     if(WiFi.status() == WL_CONNECTED) {
         Serial.println("\n[WIFI] Connected");
-        Serial.print("IP address: ");
-        Serial.println(WiFi.localIP());
+        Serial.print("IP: "); Serial.println(WiFi.localIP());
     } else {
-        Serial.println("\n[WIFI] Connection Failed!");
+        Serial.println("\n[WIFI] Connect Failed!");
     }
 }
 
@@ -154,14 +163,15 @@ void reconnectMQTT() {
         String clientId = "ESP32Warehouse-" + String(random(0xffff), HEX);
         if (client.connect(clientId.c_str())) {
             client.subscribe("warehouse/control");
-            Serial.println("[MQTT] Connected");
-            sendDataToDashboard(); // Gửi dữ liệu ngay khi kết nối lại
+            Serial.println("[MQTT] Connected & Subscribed");
+            sendDataToDashboard(); 
         } else {
              vTaskDelay(2000 / portTICK_PERIOD_MS);
         }
     }
 }
 
+// Hàm thêm dữ liệu giả lập (Mockup)
 void addItem(String hexId, String name, int qty, double price) {
     List1D<InventoryAttribute> attrs;
     unsigned long rfidDec = strtoul(hexId.c_str(), NULL, 16);
@@ -173,7 +183,7 @@ void addItem(String hexId, String name, int qty, double price) {
 void initMockData() {
     myWarehouse = new InventoryManager();
 
-    // Dữ liệu mẫu (Thêm nhiều món để test)
+    // Dữ liệu mẫu phong phú cho Dashboard đẹp
     addItem("19D01AB3", "Noi com dien",    10, 500000);  
     addItem("297124B3", "May xay sinh to", 5,  350000);  
     addItem("191D1BB3", "Quat dung",       15, 250000);  
@@ -182,10 +192,10 @@ void initMockData() {
     addItem("2D0F7506", "May say toc",     12, 150000);  
     addItem("66E5C901", "Lo vi song",      3,  1200000); 
 
-    Serial.println("[DATA] Initialized mock data.");
+    Serial.println("[DATA] Mock data initialized.");
 }
 
-// --- LOGIC CHÍNH ---
+// --- LOGIC CHÍNH (Loop) ---
 void TaskManagerFunc(void *pvParameters) {
     ManagerTaskParams* params = (ManagerTaskParams*)pvParameters;
     g_inputQ = params->inputQueue;
@@ -196,25 +206,28 @@ void TaskManagerFunc(void *pvParameters) {
     client.setServer(mqtt_server, mqtt_port);
     client.setCallback(mqttCallback);
     
-    // TĂNG BỘ ĐỆM MQTT ĐỂ GỬI JSON DÀI
-    client.setBufferSize(2048); 
+    // Tăng buffer để chứa chuỗi JSON dài
+    client.setBufferSize(4096); 
 
     SystemMessage msgIn, msgOut;
 
     for (;;) {
+        // Duy trì kết nối mạng
         if (WiFi.status() == WL_CONNECTED) {
             if (!client.connected()) reconnectMQTT();
             client.loop();
         }
 
+        // Nhận sự kiện từ hàng đợi
         if (xQueueReceive(g_inputQ, &msgIn, 10) == pdTRUE) {
             
             // === 1. XỬ LÝ QUÉT THẺ RFID ===
-            if (msgIn.type == EVENT_SCAN_RFID) {
-                String scannedStr = String(msgIn.payload);
+            if (msgIn.type == EVENT_SCAN_RFID) { // Hoặc EVENT_RFID_READ tùy define của bạn
+                String scannedStr = String(msgIn.payload); // ID thẻ dạng Hex String
                 double rfidVal = (double)strtoul(scannedStr.c_str(), NULL, 16);
                 
                 int foundIndex = -1;
+                // Logic tìm kiếm item theo thuộc tính RFID
                 for(int i=0; i<myWarehouse->size(); i++) {
                     List1D<InventoryAttribute> attrs = myWarehouse->getProductAttributes(i);
                     for(int j=0; j<attrs.size(); j++) {
@@ -226,60 +239,54 @@ void TaskManagerFunc(void *pvParameters) {
                     if(foundIndex != -1) break;
                 }
 
-                msgOut.type = EVENT_UPDATE_LCD;
+                msgOut.type = EVENT_UPDATE_LCD; 
 
+                // Xử lý theo chế độ hiện tại
                 switch (currentMode) {
-                    case MODE_CHECK: // Chỉ xem
+                    case MODE_CHECK: // CHỈ XEM
                         if (foundIndex != -1) {
-                            // Chuyển std::string sang String Arduino
                             String name = String(myWarehouse->getProductName(foundIndex).c_str());
                             int qty = myWarehouse->getProductQuantity(foundIndex);
-                            snprintf(msgOut.payload, 32, "%s: %d", name.c_str(), qty);
-                            sendLog("Check: " + name);
+                            snprintf(msgOut.payload, 32, "Check: %s", name.c_str());
+                            
+                            // Log chi tiết hơn lên Web
+                            sendLog("KIEM TRA: " + name + " (Ton: " + String(qty) + ")");
                         } else {
-                            snprintf(msgOut.payload, 32, "Unknown Item");
+                            snprintf(msgOut.payload, 32, "The la!");
+                            sendLog("CANH BAO: Phat hien the la: " + scannedStr);
                         }
-                        sendDataToDashboard(); // Cập nhật Web
+                        // Check thì không cần update bảng data, đỡ lag
                         break;
 
-                    case MODE_IMPORT: // Nhập hàng
+                    case MODE_IMPORT: // NHẬP KHO
                         if (foundIndex != -1) {
+                            // Hàng cũ -> Tăng số lượng
                             int oldQty = myWarehouse->getProductQuantity(foundIndex);
                             myWarehouse->updateQuantity(foundIndex, oldQty + 1);
-                            snprintf(msgOut.payload, 32, "Added! Qty: %d", oldQty + 1);
-                            sendLog("Imported: " + String(myWarehouse->getProductName(foundIndex).c_str()));
+                            
+                            String name = String(myWarehouse->getProductName(foundIndex).c_str());
+                            snprintf(msgOut.payload, 32, "Them: %s", name.c_str());
+                            sendLog("DA NHAP: " + name + " (+1)");
                         } else {
+                            // Hàng mới -> Tạo mới
                             List1D<InventoryAttribute> newAttrs;
                             newAttrs.add(InventoryAttribute("RFID", rfidVal));
                             newAttrs.add(InventoryAttribute("Price", 0)); 
-                            String newName = "Item-" + scannedStr;
+                            String newName = "SP-" + scannedStr; // Tên tạm
                             myWarehouse->addProduct(newAttrs, newName.c_str(), 1);
-                            snprintf(msgOut.payload, 32, "New: %s", newName.c_str());
-                            sendLog("Created NEW: " + newName);
+                            
+                            snprintf(msgOut.payload, 32, "Moi: %s", newName.c_str());
+                            sendLog("NHAP MOI: " + newName);
                         }
-                        sendDataToDashboard(); // Cập nhật Web
-                        break;
-
-                    case MODE_SELL: // Bán hàng
-                        if (foundIndex != -1) {
-                            int oldQty = myWarehouse->getProductQuantity(foundIndex);
-                            if (oldQty > 0) {
-                                myWarehouse->updateQuantity(foundIndex, oldQty - 1);
-                                snprintf(msgOut.payload, 32, "Sold! Rem: %d", oldQty - 1);
-                                sendLog("Sold via RFID. Rem: " + String(oldQty - 1));
-                                sendDataToDashboard(); // Cập nhật Web
-                            } else {
-                                snprintf(msgOut.payload, 32, "Out of Stock!");
-                            }
-                        } else {
-                            snprintf(msgOut.payload, 32, "Not Found!");
-                        }
+                        sendDataToDashboard(); // UPDATE NGAY
                         break;
                 }
+                // Gửi ra màn hình LCD
                 xQueueSend(g_displayQ, &msgOut, 10);
             }
             
             // === 2. XỬ LÝ LỆNH XUẤT KHO TỪ DASHBOARD (EXPORT) ===
+            // (Code logic xử lý này của bạn đã Rất Tốt, giữ nguyên)
             else if (msgIn.type == EVENT_EXPORT_CMD) {
                 String targetName = String(msgIn.payload);
                 int exportQty = msgIn.value;
@@ -291,15 +298,17 @@ void TaskManagerFunc(void *pvParameters) {
                         
                         if (currentQty >= exportQty) {
                             myWarehouse->updateQuantity(i, currentQty - exportQty);
+                            
                             msgOut.type = EVENT_UPDATE_LCD;
-                            snprintf(msgOut.payload, 32, "Exp: %s -%d", targetName.c_str(), exportQty);
+                            snprintf(msgOut.payload, 32, "Xuat: -%d %s", exportQty, targetName.c_str());
                             xQueueSend(g_displayQ, &msgOut, 10);
-                            sendLog("Web Export: " + targetName + " (-" + String(exportQty) + ")");
-                            sendDataToDashboard(); // Cập nhật Web
+                            
+                            sendLog("LENH WEB: Xuat " + String(exportQty) + " " + targetName);
+                            sendDataToDashboard(); // Cập nhật lại Web
                         } else {
-                            sendLog("Export Fail: Not enough stock");
+                            sendLog("LOI: Khong du hang de xuat " + targetName);
                             msgOut.type = EVENT_UPDATE_LCD;
-                            snprintf(msgOut.payload, 32, "Err: Low Stock");
+                            snprintf(msgOut.payload, 32, "Loi: Het hang!");
                             xQueueSend(g_displayQ, &msgOut, 10);
                         }
                         found = true;
@@ -308,16 +317,14 @@ void TaskManagerFunc(void *pvParameters) {
                 }
                 
                 if (!found) {
-                    sendLog("Export Fail: Not found " + targetName);
+                    sendLog("LOI: Khong tim thay san pham " + targetName);
                 }
             }
 
             // === 3. XỬ LÝ ĐỒNG BỘ ===
             else if (msgIn.type == EVENT_SYNC_CLOUD) {
                 sendDataToDashboard();
-                msgOut.type = EVENT_UPDATE_LCD;
-                snprintf(msgOut.payload, 32, "Syncing...");
-                xQueueSend(g_displayQ, &msgOut, 10);
+                sendLog("System Synced.");
             }
         }
     }

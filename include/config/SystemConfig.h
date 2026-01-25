@@ -14,7 +14,10 @@
 #define PIN_RFID_MOSI   23
 #define PIN_RFID_MISO   19
 #define PIN_RFID_RST    4
-
+//LED MODE
+#define PIN_LED_CHECK   25 //GREEN
+#define PIN_LED_IMPORT  26 //YELLOW
+#define PIN_LED_SELL    27 //RED 
 // --- SYSTEM SETTINGS ---
 #define LCD_ADDRESS     0x27
 #define LCD_COLS        16

@@ -8,13 +8,13 @@
 enum AppMode {
     MODE_CHECK = 0, // Chỉ kiểm tra (Mặc định - LED Xanh dương)
     MODE_IMPORT = 1, // Nhập kho (Tăng số lượng - LED Xanh lá)
-    MODE_SELL = 2    // Bán hàng (Để dự phòng, vì giờ ta xuất hàng qua Web là chính)
+    MODE_SELL = 2    // Bán hàng 
 };
 
 // --- CẤU HÌNH WIFI / MQTT ---
 const char* ssid = "THD";             
-const char* password = "hcmutk23@";   
-const char* mqtt_server = "192.168.1.3"; // Nhớ check lại IP máy tính
+const char* password = "hcmutk23@"; //  
+const char* mqtt_server = "192.168.1.3"; // IP máy tính
 const int mqtt_port = 1883;
 
 WiFiClient espClient;
@@ -71,46 +71,51 @@ void sendDataToDashboard() {
     client.publish("warehouse/data", json.c_str(), true);
 }
 
-// --- CALLBACK MQTT: ĐÃ SỬA ĐỂ HIỂU JSON TỪ NODE-RED MỚI ---
-// Node-RED gửi: {"cmd":"SET_MODE", "val":1} hoặc {"cmd":"EXPORT", "name":"ABC", "qty":5}
+// --- CALLBACK MQTT: ĐÃ SỬA ĐỂ TƯƠNG THÍCH VỚI DASHBOARD PRO ---
 void mqttCallback(char* topic, uint8_t* payload, unsigned int length) {
     String message;
     for (int i = 0; i < length; i++) message += (char)payload[i];
     Serial.print("[MQTT] Recv: "); Serial.println(message);
-
     SystemMessage msgOut;
 
     if (String(topic) == "warehouse/control") {
         
-        // === 1. XỬ LÝ LỆNH CHUYỂN CHẾ ĐỘ (SET_MODE) ===
-        // Tìm chuỗi "SET_MODE" trong tin nhắn JSON
+        // === 1. XỬ LÝ LỆNH CHUYỂN CHẾ ĐỘ ({"cmd":"SET_MODE", "val":...}) ===
         if (message.indexOf("SET_MODE") >= 0) {
-            // Parse thủ công lấy giá trị "val"
+            // Tìm vị trí của "val":
             int valPos = message.indexOf("\"val\":");
             if (valPos > 0) {
                 // Lấy ký tự số ngay sau "val":
+                // JSON gửi "val":1 nên ta lấy substring và chuyển thành int
                 int modeVal = message.substring(valPos + 6).toInt();
                 
                 if (modeVal == 1) {
                     currentMode = MODE_IMPORT;
-                    sendLog(">> Chuyen che do: NHAP KHO");
-                } else {
+                    snprintf(msgOut.payload, 32, "Mode: IMPORT");
+                    sendLog(">> Chuyen che do: NHAP KHO (RFID)");
+                } 
+                else if (modeVal == 2) {
+                    currentMode = MODE_SELL;
+                    snprintf(msgOut.payload, 32, "Mode: SELL");
+                    sendLog(">> Chuyen che do: BAN HANG (RFID)");
+                }
+                else {
                     currentMode = MODE_CHECK;
+                    snprintf(msgOut.payload, 32, "Mode: CHECK");
                     sendLog(">> Chuyen che do: GIAM SAT");
                 }
-                
                 // Cập nhật LCD
-                msgOut.type = EVENT_UPDATE_LCD; // Dùng EVENT_UPDATE_DISPLAY thay vì UPDATE_LCD nếu struct task của bạn dùng tên này
-                snprintf(msgOut.payload, 32, "Mode: %s", (currentMode == MODE_IMPORT) ? "IMPORT" : "CHECK");
+                msgOut.type = EVENT_UPDATE_LCD; 
                 xQueueSend(g_displayQ, &msgOut, 10);
                 
-                sendDataToDashboard(); // Cập nhật lại Web
+                // Cập nhật lại Web để nút bấm đổi màu đúng trạng thái
+                sendDataToDashboard(); 
             }
         }
 
-        // === 2. XỬ LÝ LỆNH XUẤT KHO TỪ WEB (EXPORT) ===
-        // JSON: {"cmd": "EXPORT", "name": "Noi com dien", "qty": 2}
+        // === 2. XỬ LÝ LỆNH XUẤT KHO TỪ WEB ({"cmd":"EXPORT",...}) ===
         else if (message.indexOf("EXPORT") >= 0) {
+            // Cấu trúc JSON: {"cmd": "EXPORT", "name": "Noi com dien", "qty": 2}
             
             // a. Tách Tên (Name)
             int nameStart = message.indexOf("\"name\":\"") + 8;
@@ -120,16 +125,16 @@ void mqttCallback(char* topic, uint8_t* payload, unsigned int length) {
             // b. Tách Số lượng (Qty)
             int qtyStart = message.indexOf("\"qty\":") + 6;
             int qtyEnd = message.indexOf("}", qtyStart);
-            // Fix lỗi nếu có dấu phẩy phía sau qty
+            // Phòng trường hợp JSON có thêm trường phía sau qty
             int commaPos = message.indexOf(",", qtyStart); 
             if (commaPos != -1 && commaPos < qtyEnd) qtyEnd = commaPos;
             
             int pQty = message.substring(qtyStart, qtyEnd).toInt();
 
-            // c. Gửi lệnh vào Queue để TaskManager xử lý
+            // c. Gửi lệnh vào Queue
             if (pName.length() > 0 && pQty > 0) {
                 SystemMessage exportMsg;
-                exportMsg.type = EVENT_EXPORT_CMD; // Đảm bảo đã define cái này trong SystemConfig.h
+                exportMsg.type = EVENT_EXPORT_CMD;
                 exportMsg.value = pQty; 
                 strncpy(exportMsg.payload, pName.c_str(), sizeof(exportMsg.payload) - 1);
                 exportMsg.payload[sizeof(exportMsg.payload) - 1] = '\0';

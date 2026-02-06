@@ -4,43 +4,45 @@
 #include <Arduino.h>
 #include <vector>
 
-// Cấu trúc sản phẩm đơn giản hóa
+// Cấu trúc của một sản phẩm trong kho
 struct Product {
     String name;
     int quantity;
     double price;
-    String rfid; // Lưu mã thẻ dạng Hex (VD: "195623B3")
-
+    String rfid; 
+    // Khởi tạo 1 Product bất kỳ đảm bảo 4 thuộc tính
     Product(String n, int q, double p, String id) 
         : name(n), quantity(q), price(p), rfid(id) {}
 };
-
+// Cấu trúc quản lý kho
 class InventoryManager {
 private:
+// Cơ sở dữ liêu của Product
     std::vector<Product> database;
 
 public:
+    // Hàm khởi tạo kho không cần điều kiện
     InventoryManager() {}
 
     // Lấy số lượng sản phẩm
     int size() const { return database.size(); }
 
-    // Các hàm lấy dữ liệu (Getter)
+    // Lấy tên của Product tại chỉ số index
     String getProductName(int index) { 
         if(index < 0 || index >= database.size()) return "";
         return database[index].name; 
     }
-
+    // Lấy số lượng của Product tại chỉ số index
     int getProductQuantity(int index) { 
         if(index < 0 || index >= database.size()) return 0;
         return database[index].quantity; 
     }
-
+    // Lấy giá của Product tại chỉ số index
     double getProductPrice(int index) { 
         if(index < 0 || index >= database.size()) return 0.0;
         return database[index].price; 
     }
-
+    // Lấy RFID của Product tại chỉ số index
     String getProductRFID(int index) {
         if(index < 0 || index >= database.size()) return "";
         return database[index].rfid;

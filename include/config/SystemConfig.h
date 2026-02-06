@@ -40,7 +40,7 @@ enum EventType {
 
 struct SystemMessage {
     EventType type;
-    char payload[32];   // Dùng char array thay vì String để an toàn bộ nhớ trong RTOS
+    char payload[32];   
     int value;
 };
 

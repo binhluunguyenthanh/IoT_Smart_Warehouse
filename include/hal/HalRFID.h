@@ -7,13 +7,11 @@
 
 class HalRFID {
 private:
-    MFRC522* mfrc522; // Con trỏ tới đối tượng thư viện
+    MFRC522* mfrc522; 
 public:
     HalRFID();
     void init();
-    // Hàm kiểm tra xem có thẻ mới không
     bool checkTag();
-    // Hàm lấy UID của thẻ dưới dạng chuỗi (VD: "E2 A3 4F")
     String getTagUID();
 };
 

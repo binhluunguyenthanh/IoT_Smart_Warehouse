@@ -1,115 +1,85 @@
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <freertos/queue.h>
 
 #include "config/SystemConfig.h"
 #include "hal/HalLCD.h"
-#include "hal/HalRFID.h"
+#include "hal/HalRFID.h" 
 
+// Include các file header chuẩn bạn đã gửi
 #include "tasks/TaskInput.h"
 #include "tasks/TaskDisplay.h"
 #include "tasks/TaskManager.h"
+#include "tasks/task_webserver.h"
+#include "tasks/TaskTemp.h"
+#include "tinyml.h"
+#include "global.h"
 
-// --- KHAI BÁO PHẦN CỨNG TOÀN CỤC ---
+// 1. Khai báo phần cứng toàn cục
 HalLCD myLCD;
 HalRFID myRFID;
 
-// --- KHAI BÁO HÀNG ĐỢI (QUEUE) ---
-QueueHandle_t qSensorToManager;
-QueueHandle_t qManagerToDisplay;
+// 2. Khai báo Queue Handle
+QueueHandle_t g_queueRFID_to_Manager; // Queue gửi từ Input -> Manager
+QueueHandle_t g_queueManager_to_LCD;  // Queue gửi từ Manager -> LCD
 
-// --- THAM SỐ TRUYỀN VÀO TASK ---
-InputTaskParams inputParams;
-DisplayTaskParams displayParams;
-ManagerTaskParams managerParams;
+// Import hàm từ task_wifi (giữ nguyên logic cũ)
+void startAP();
+void startSTA();
+bool check_info_File(bool check);
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("--- SYSTEM BOOTING ---");
-
-    // 1. Khởi động màn hình LCD (RFID sẽ khởi động trong Task riêng)
+    // Cấu hình chân LED chế độ
+    pinMode(PIN_LED_CHECK, OUTPUT);
+    pinMode(PIN_LED_IMPORT, OUTPUT);
+    pinMode(PIN_LED_SELL, OUTPUT);
+    updateLeds();
+    // Init phần cứng cơ bản
     myLCD.init();
-
-    // 2. Tạo hàng đợi tin nhắn
-    qSensorToManager = xQueueCreate(10, sizeof(SystemMessage));
-    qManagerToDisplay = xQueueCreate(10, sizeof(SystemMessage));
-
-    if (qSensorToManager == NULL || qManagerToDisplay == NULL) {
-        Serial.println("ERR: Queue Create Failed");
-        while(1); // Treo máy nếu lỗi
-    }
-
-    // 3. Đóng gói tham số để gửi cho từng nhân viên (Task)
+    myLCD.showMessage("System Init...", "Booting RTOS");
     
-    // -> Cho nhân viên Input (Bảo vệ)
-    inputParams.outputQueue = qSensorToManager;
-    inputParams.rfidReader = &myRFID;
+    // Tạo Queue (QUAN TRỌNG)
+    g_queueRFID_to_Manager = xQueueCreate(10, sizeof(SystemMessage));
+    g_queueManager_to_LCD = xQueueCreate(10, sizeof(SystemMessage));
 
-    // -> Cho nhân viên Display (Bảng tin)
-    displayParams.inputQueue = qManagerToDisplay;
-    displayParams.lcdScreen = &myLCD;
+    // Setup WiFi
+    check_info_File(false); // Kiểm tra file cấu hình
+    myLCD.showStatus("Connecting WiFi");
+    startSTA();
 
-    // -> Cho nhân viên Manager (Quản kho)
-    managerParams.inputQueue = qSensorToManager;
-    managerParams.displayQueue = qManagerToDisplay;
+    // --- CẤU HÌNH THAM SỐ CHO TASK (ĐÃ SỬA LỖI Ở ĐÂY) ---
 
-    Serial.println("--- SCHEDULER STARTED ---");
+    // 1. Task Input: Sửa tên biến theo TaskInput.h
+    static InputTaskParams inputParams; 
+    inputParams.outputQueue = g_queueRFID_to_Manager; // Tên đúng là outputQueue
+    inputParams.rfidReader = &myRFID;                 // Phải truyền địa chỉ (&) của biến myRFID
 
-    // 4. Tạo và chạy các Task (Phân luồng)
-    // Task Input chạy Core 1
-    xTaskCreatePinnedToCore(TaskInputFunc, "Input", 4096, &inputParams, 1, NULL, 1);
-    
-    // Task Display chạy Core 1
+    // 2. Task Display: Sửa tên biến theo TaskDisplay.h
+    static DisplayTaskParams displayParams;
+    displayParams.inputQueue = g_queueManager_to_LCD; // Tên đúng là inputQueue
+    displayParams.lcdScreen = &myLCD;                 // Phải truyền địa chỉ (&) của biến myLCD
+
+    // 3. Task Manager: Sửa tên biến theo TaskManager.h
+    static ManagerTaskParams managerParams;
+    managerParams.inputQueue = g_queueRFID_to_Manager;
+    managerParams.displayQueue = g_queueManager_to_LCD;
+
+    // --- KÍCH HOẠT CÁC TASK ---
+
+    // Core 0: WebServer
+    xTaskCreatePinnedToCore(TaskWebServerFunc, "WebServer", 8192, NULL, 1, NULL, 0);
+
+    // Core 1: Logic & Hardware
+    xTaskCreatePinnedToCore(TaskManagerFunc, "Manager", 8192, &managerParams, 2, NULL, 1);
+    xTaskCreatePinnedToCore(TaskInputFunc,   "Input",   4096, &inputParams,   1, NULL, 1);
     xTaskCreatePinnedToCore(TaskDisplayFunc, "Display", 4096, &displayParams, 1, NULL, 1);
-    
-    // Task Manager (Nặng nhất: WiFi + Logic) chạy Core 0
-    xTaskCreatePinnedToCore(TaskManagerFunc, "Manager", 16384, &managerParams, 2, NULL, 0);
+    xTaskCreatePinnedToCore(TaskTempFunc, "TaskTemp", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(tiny_ml_task, "TinyML", 8192, NULL, 1, NULL, 0);
+    Serial.println(">>> SYSTEM STARTED SUCCESS <<<");
 }
 
 void loop() {
-    // Trong FreeRTOS, loop của Arduino không làm gì cả.
-    // Ta xóa task này để giải phóng RAM cho hệ thống.
+    // Loop trống, nhường CPU cho RTOS
     vTaskDelete(NULL);
 }
-// #include <Arduino.h>
-// #include <Wire.h>
-
-// // Định nghĩa đúng chân bạn đang dùng
-// #define SDA_PIN 33
-// #define SCL_PIN 32
-
-// void setup() {
-//   Serial.begin(115200);
-//   Serial.println("\nDang khoi dong I2C Scanner...");
-  
-//   // Khởi động I2C với chân mới
-//   Wire.begin(SDA_PIN, SCL_PIN);
-// }
-
-// void loop() {
-//   byte error, address;
-//   int nDevices = 0;
-
-//   Serial.println("Dang quet tim thiet bi...");
-
-//   for(address = 1; address < 127; address++ ) {
-//     Wire.beginTransmission(address);
-//     error = Wire.endTransmission();
-
-//     if (error == 0) {
-//       Serial.print("TIM THAY thiet bi I2C tai dia chi: 0x");
-//       if (address < 16) Serial.print("0");
-//       Serial.print(address, HEX);
-//       Serial.println("  !");
-//       nDevices++;
-//     }
-//   }
-  
-//   if (nDevices == 0)
-//     Serial.println("KHONG tim thay thiet bi nao -> Kiem tra lai day noi (long day?), nguon (5V?), hoac doi day SDA/SCL.");
-//   else
-//     Serial.println("Quet hoan tat.\n");
-
-//   delay(5000); // Quét lại sau 5 giây
-// }

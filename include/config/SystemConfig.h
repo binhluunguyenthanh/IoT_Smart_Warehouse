@@ -4,7 +4,7 @@
 
 #include <Arduino.h>
 
-// --- PIN DEFINITIONS (Phù hợp với ESP32 DevKit V1) ---
+// --- PIN DEFINITIONS ---
 #define PIN_SERVO       13
 #define PIN_LCD_SDA     33
 #define PIN_LCD_SCL     32
@@ -15,9 +15,9 @@
 #define PIN_RFID_MISO   19
 #define PIN_RFID_RST    4
 //LED MODE
-#define PIN_LED_CHECK   25 //GREEN
-#define PIN_LED_IMPORT  26 //YELLOW
-#define PIN_LED_SELL    27 //RED 
+#define PIN_LED_CHECK   2 //GREEN
+#define PIN_LED_IMPORT  15 //YELLOW
+#define PIN_LED_SELL    13 //RED 
 // --- SYSTEM SETTINGS ---
 #define LCD_ADDRESS     0x27
 #define LCD_COLS        16
@@ -27,14 +27,15 @@
 // --- QUEUE SETTINGS ---
 #define QUEUE_LENGTH    10
 #define QUEUE_WAIT_MS   10
-
+// --- SENSOR SETTINGS ---
+#define PIN_DHT         16
+#define DHT_TYPE        DHT22
 // --- DATA TYPES ---
 enum EventType {
-    EVENT_IDLE,
-    EVENT_SCAN_RFID,    // Quét được thẻ
-    EVENT_UPDATE_LCD,   // Cần vẽ lại màn hình
-    EVENT_SYNC_CLOUD,    // Cần nén và gửi MQTT
-    EVENT_EXPORT_CMD
+    EVENT_IDLE,         // Trạng thái nhàn rỗi
+    EVENT_SCAN_RFID,    // Đọc thẻ RFID
+    EVENT_UPDATE_LCD,   // Cập nhật hiển thị LCD
+    EVENT_SYNC_CLOUD,   // Đồng bộ dữ liệu lên Cloud
 };
 
 struct SystemMessage {

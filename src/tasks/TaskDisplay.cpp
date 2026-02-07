@@ -1,5 +1,5 @@
 #include "tasks/TaskDisplay.h"
-#include "config/SystemConfig.h"
+#include "global.h"
 
 void TaskDisplayFunc(void *pvParameters) {
     DisplayTaskParams* params = (DisplayTaskParams*)pvParameters;

@@ -30,18 +30,5 @@
 // --- SENSOR SETTINGS ---
 #define PIN_DHT         16
 #define DHT_TYPE        DHT22
-// --- DATA TYPES ---
-enum EventType {
-    EVENT_IDLE,         // Trạng thái nhàn rỗi
-    EVENT_SCAN_RFID,    // Đọc thẻ RFID
-    EVENT_UPDATE_LCD,   // Cập nhật hiển thị LCD
-    EVENT_SYNC_CLOUD,   // Đồng bộ dữ liệu lên Cloud
-};
-
-struct SystemMessage {
-    EventType type;
-    char payload[32];   
-    int value;
-};
 
 #endif

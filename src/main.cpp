@@ -72,7 +72,6 @@ void loop() {
 #include "tasks/TaskManager.h"
 #include "tasks/task_webserver.h"
 #include "tasks/TaskTemp.h"
-#include "tinyml.h"
 #include "global.h"
 
 // 1. Khai báo phần cứng toàn cục
@@ -137,7 +136,7 @@ void setup() {
     xTaskCreatePinnedToCore(TaskInputFunc,   "Input",   4096, &inputParams,   1, NULL, 1);
     xTaskCreatePinnedToCore(TaskDisplayFunc, "Display", 4096, &displayParams, 1, NULL, 1);
     xTaskCreatePinnedToCore(TaskTempFunc, "TaskTemp", 4096, NULL, 1, NULL, 1);
-    xTaskCreatePinnedToCore(tiny_ml_task, "TinyML", 8192, NULL, 1, NULL, 0);
+  
     
     Serial.println(">>> SYSTEM STARTED SUCCESS <<<");
 }

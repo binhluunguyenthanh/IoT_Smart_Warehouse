@@ -13,6 +13,20 @@ extern String CORE_IOT_TOKEN;
 extern String CORE_IOT_SERVER;
 extern String CORE_IOT_PORT;
 
+// --- DATA TYPES ---
+enum EventType {
+    EVENT_IDLE,         // Trạng thái nhàn rỗi
+    EVENT_SCAN_RFID,    // Đọc thẻ RFID
+    EVENT_UPDATE_LCD,   // Cập nhật hiển thị LCD
+    EVENT_SYNC_CLOUD,   // Đồng bộ dữ liệu lên Cloud
+};
+
+struct SystemMessage {
+    EventType type;
+    char payload[32];   
+    int value;
+};
+
 extern InventoryManager* myWarehouse;
 // Khóa bảo vệ kho hàng
 extern SemaphoreHandle_t xInventoryMutex; 

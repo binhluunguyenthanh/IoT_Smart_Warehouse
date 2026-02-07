@@ -1,5 +1,5 @@
 #include "tasks/TaskInput.h"
-#include "config/SystemConfig.h"
+#include "global.h"
 
 void TaskInputFunc(void *pvParameters) {
     InputTaskParams* params = (InputTaskParams*)pvParameters;

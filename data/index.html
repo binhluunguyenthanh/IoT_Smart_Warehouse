@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Warehouse Dashboard</title>
+    
+    <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH5gIKFwUpsE/V6QAAAB1pVFh0Q29tbWVudAAAAAAAQ3JlYXRlZCB3aXRoIEdJTVBkLmUHAAABsklEQVRYw+2WMU/DMBTHf24qQ6UOHTukqgNIDOxISIxI7MzCxsLCzPcAg4WJnbkPgMQAIySWJHZ2oCQkCqgqdajn4Lg2Tdw0rgrxL198/v/fs52dIqJowj+W67p57/08cI4+gA1gA8gC+8Ar8Kx13Q3D8GfXJCLi+75jWdYy8ACsA1ngEfgC7lqtVrder9eTBEzTzAPLwBowBYbABfDBObcRx/F3ogCO46wC68AUyAODyJ1zLinANM08sAFMA1kgAu6dcxv/IMB13TxwAKwD08iF1q+dcxvNZvM7McCyLMcwjGXkQqF15JzbCMPwKzEA3vs5YANYALJAIvLgXGu9EwVwzjk2sA4sAFlgELlzbmMYhi9xAO/9PLABLAJZYBC5c24jDMOP2ACu6+aBDWCRXAitI+fcRqvV6vR6vZ4YwDTNHHAAZIFpIBG5c26j2Wz+4gCmac4DK8A8kAVS5FprvYkC+L7vWJa1AqwD08AQ+AAuozB0zrmkANO13wZWgCwy61+41nqv9d6JArTbbQe4Rfa8f+Fa673WeycK0O12C8ADsErm/QvXWu+13rt/FfAGf+4w516kX9gAAAAASUVORK5CYII=">
+
+    <link rel="stylesheet" type="text/css" href="style.css">
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div class="overlay" id="overlay" onclick="toggleSidebar()"></div>
+
+    <nav id="sidebar">
+        <div class="brand-logo"><i class="fa-solid fa-cube text-primary"></i> SMART WAREHOUSE</div>
+        <ul class="nav flex-column mt-3">
+            <li class="nav-item mb-2"><a href="#" class="nav-link active" onclick="showSection('dashboard', this); toggleSidebar()"><i class="fa-solid fa-chart-pie"></i> Tổng Quan</a></li>
+            <li class="nav-item mb-2"><a href="#" class="nav-link" onclick="showSection('inventory', this); toggleSidebar()"><i class="fa-solid fa-boxes-stacked"></i> Kho Hàng</a></li>
+            <li class="nav-item mb-2"><a href="#" class="nav-link" onclick="showSection('operations', this); toggleSidebar()"><i class="fa-solid fa-gamepad"></i> Điều Khiển</a></li>
+        </ul>
+        <div style="position:absolute; bottom:20px; width:100%; padding:20px;">
+            <div class="p-3 text-center bg-light rounded-3">
+                <small id="connStatus" class="fw-bold text-danger"><i class="fa-solid fa-wifi"></i> Mất kết nối</small>
+            </div>
+        </div>
+    </nav>
+
+    <div id="content">
+        <div class="d-flex justify-content-between align-items-center mb-4 bg-white p-3 rounded-4 shadow-sm">
+            <div class="d-flex align-items-center">
+                <i class="fa-solid fa-bars sidebar-toggle" onclick="toggleSidebar()"></i>
+                <div><h4 class="fw-bold m-0 text-primary">Dashboard</h4></div>
+            </div>
+            <span class="badge bg-primary bg-opacity-10 text-primary fs-6 px-4 py-2 rounded-pill" id="sysModeBadge">MODE: CHECK</span>
+        </div>
+
+        <div id="dashboard" class="page-section">
+            <div class="row g-4 mb-4">
+                <div class="col-md-6">
+                    <div class="stat-card sensor-card">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div><div class="stat-label">Nhiệt Độ Kho</div><div class="stat-value" id="valTempText">-- °C</div></div>
+                            <div class="sensor-icon-box" id="iconBoxTemp" style="background: #fff5f5; color: #ff6b6b;"><i class="fa-solid fa-temperature-half"></i></div>
+                        </div>
+                        <div class="sensor-progress-bg"><div class="sensor-progress-fill" id="progTemp" style="width: 0%; background: #ff6b6b;"></div></div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="stat-card sensor-card">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div><div class="stat-label">Độ Ẩm Không Khí</div><div class="stat-value" id="valHumText">-- %</div></div>
+                            <div class="sensor-icon-box" id="iconBoxHum" style="background: #f0f7ff; color: #4dabf7;"><i class="fa-solid fa-droplet"></i></div>
+                        </div>
+                        <div class="sensor-progress-bg"><div class="sensor-progress-fill" id="progHum" style="width: 0%; background: #4dabf7;"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-4 mb-4">
+                <div class="col-6 col-xl-3"><div class="stat-card"><div class="stat-label">Tổng Giá Trị</div><div class="stat-value text-primary" id="totalValue">0 ₫</div></div></div>
+                <div class="col-6 col-xl-3"><div class="stat-card"><div class="stat-label">Tổng Số Lượng</div><div class="stat-value text-success" id="totalQty">0</div></div></div>
+                <div class="col-6 col-xl-3"><div class="stat-card"><div class="stat-label">Lượt Quét RFID</div><div class="stat-value text-warning" id="scanCount">0</div></div></div>
+                <div class="col-6 col-xl-3"><div class="stat-card"><div class="stat-label">Thẻ Gần Nhất</div><div class="stat-value fs-5 text-dark" id="lastRfid">---</div></div></div>
+            </div>
+            
+            <div class="row g-4">
+                <div class="col-md-8"><div class="stat-card"><h5 class="fw-bold mb-4 text-secondary">Biểu Đồ Tồn Kho</h5><div id="revenueChart" style="height: 300px;"></div></div></div>
+                <div class="col-md-4"><div class="stat-card"><h5 class="fw-bold mb-4 text-secondary">Cơ Cấu Hàng Hóa</h5><div id="donutChart" style="height: 300px;"></div></div></div>
+            </div>
+        </div>
+
+        <div id="inventory" class="page-section d-none">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between mb-4 align-items-center">
+                    <h5 class="fw-bold m-0">Danh Sách Hàng Hóa</h5>
+                    <button class="btn btn-primary rounded-pill px-4 btn-sm" onclick="fetchData()"><i class="fa-solid fa-rotate me-2"></i> Làm mới</button>
+                </div>
+                <div class="table-responsive">
+                    <table id="invTable" class="table table-hover w-100 align-middle">
+                        <thead class="bg-light"><tr><th>Tên Sản Phẩm</th><th>Số Lượng</th><th>Đơn Giá</th><th>Thành Tiền</th><th>Mã RFID</th></tr></thead>
+                        <tbody id="invTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="operations" class="page-section d-none">
+            <div class="row mb-5 g-3">
+                <div class="col-md-4"><div class="mode-btn active" onclick="setMode(0)" id="btn-mode-0"><i class="fa-solid fa-magnifying-glass text-primary"></i><h5 class="fw-bold">CHẾ ĐỘ KIỂM TRA</h5></div></div>
+                <div class="col-md-4"><div class="mode-btn" onclick="setMode(1)" id="btn-mode-1"><i class="fa-solid fa-file-import text-success"></i><h5 class="fw-bold">CHẾ ĐỘ NHẬP KHO</h5></div></div>
+                <div class="col-md-4"><div class="mode-btn" onclick="setMode(2)" id="btn-mode-2"><i class="fa-solid fa-file-export text-danger"></i><h5 class="fw-bold">CHẾ ĐỘ XUẤT KHO</h5></div></div>
+            </div>
+            <div class="row g-4">
+                <div class="col-md-6">
+                    <div class="stat-card h-100 border-start border-4 border-success">
+                        <h5 class="mb-3 fw-bold text-success">Nhập Kho Thủ Công</h5>
+                        <input type="text" id="imName" class="form-control mb-3" placeholder="Tên sản phẩm">
+                        <div class="row mb-3">
+                            <div class="col-6"><input type="number" id="imQty" class="form-control" value="1"></div>
+                            <div class="col-6"><input type="text" id="imRfid" class="form-control" placeholder="RFID (Option)"></div>
+                        </div>
+                        <button class="btn btn-success w-100 fw-bold" onclick="manualAction('IMPORT')">NHẬP KHO</button>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="stat-card h-100 border-start border-4 border-danger">
+                        <h5 class="mb-3 fw-bold text-danger">Xuất Kho Thủ Công</h5>
+                        <input type="text" id="exName" class="form-control mb-3" placeholder="Tên sản phẩm">
+                        <input type="number" id="exQty" class="form-control mb-3" value="1">
+                        <button class="btn btn-danger w-100 fw-bold mt-auto" onclick="manualAction('EXPORT')">XUẤT KHO</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <script src="script.js"></script>
+</body>
+</html>

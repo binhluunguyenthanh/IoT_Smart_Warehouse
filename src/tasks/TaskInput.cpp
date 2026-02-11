@@ -8,44 +8,43 @@ void TaskInputFunc(void *pvParameters) {
 
     SystemMessage msg;
 
-    // init RFID trong Task này (vì liên quan đến SPI bus)
+    // Khởi tạo RFID trong Task này (vì liên quan đến bus SPI của Task này)
     rfid->init();
     Serial.println("[INPUT] Ready: Scan RFID or Type Serial...");
 
     for (;;) {
-        // 1. ƯU TIÊN KIỂM TRA RFID (PHẦN CỨNG THẬT)
+        // 1. KIỂM TRA RFID (PHẦN CỨNG THẬT)
         if (rfid->checkTag()) {
             String uid = rfid->getTagUID();
             
+            // Đóng gói tin nhắn
             msg.type = EVENT_SCAN_RFID;
-            // Copy chuỗi UID vào payload (an toàn bộ nhớ)
+            // Copy chuỗi UID vào payload (sử dụng strncpy để an toàn bộ nhớ đệm)
             strncpy(msg.payload, uid.c_str(), sizeof(msg.payload) - 1);
-            msg.payload[sizeof(msg.payload) - 1] = '\0'; // Null terminate
+            msg.payload[sizeof(msg.payload) - 1] = '\0'; // Đảm bảo kết thúc chuỗi
 
+            // Gửi vào Queue để Manager xử lý
             xQueueSend(outQ, &msg, 10);
             Serial.println("[INPUT] RFID Detected: " + uid);
             
-            // Delay nhẹ để tránh đọc trùng lặp quá nhanh
+            // Delay 1 giây để tránh đọc 1 thẻ nhiều lần liên tiếp
             vTaskDelay(1000 / portTICK_PERIOD_MS);
         }
 
-        // 2. KIỂM TRA SERIAL (MÔ PHỎNG WOKWI)
+        // 2. KIỂM TRA SERIAL (MÔ PHỎNG - Dùng để test khi không có thẻ thật)
         if (Serial.available()) {
             String input = Serial.readStringUntil('\n');
-            input.trim();
+            input.trim(); // Xóa khoảng trắng thừa
             if (input.length() > 0) {
-                if (input == "SYNC") {
-                    msg.type = EVENT_SYNC_CLOUD;
-                } else {
-                    msg.type = EVENT_SCAN_RFID;
-                    strncpy(msg.payload, input.c_str(), sizeof(msg.payload) - 1);
-                }
+                msg.type = EVENT_SCAN_RFID;
+                strncpy(msg.payload, input.c_str(), sizeof(msg.payload) - 1);
                 
                 xQueueSend(outQ, &msg, 10);
                 Serial.println("[INPUT] Serial Command: " + input);
             }
         }
 
-        vTaskDelay(100 / portTICK_PERIOD_MS); // Nghỉ 100ms
+        // Nghỉ 100ms để nhường CPU
+        vTaskDelay(100 / portTICK_PERIOD_MS); 
     }
 }

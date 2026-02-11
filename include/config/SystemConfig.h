@@ -28,7 +28,7 @@
 #define QUEUE_LENGTH    10
 #define QUEUE_WAIT_MS   10
 // --- SENSOR SETTINGS ---
-#define PIN_DHT         16
+#define DHT_PIN         16
 #define DHT_TYPE        DHT22
 
 #endif

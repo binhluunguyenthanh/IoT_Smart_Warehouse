@@ -1,36 +1,39 @@
 #include "hal/HalRFID.h"
 
+// Constructor: Cấu hình chân CS (SDA) và RST cho module RC522
 HalRFID::HalRFID() {
-    // Khởi tạo đối tượng MFRC522 với chân SS và RST định nghĩa trong SystemConfig
     mfrc522 = new MFRC522(PIN_RFID_SDA, PIN_RFID_RST);
 }
 
+// Khởi tạo giao tiếp SPI và Module RFID
 void HalRFID::init() {
-    SPI.begin();        // Init SPI bus
-    mfrc522->PCD_Init(); // Init MFRC522
+    SPI.begin();         // Khởi động bus SPI
+    mfrc522->PCD_Init(); // Khởi động chip RC522
     // Có thể chỉnh gain (độ nhạy) ăng ten nếu cần:
     // mfrc522->PCD_SetAntennaGain(mfrc522->RxGain_max);
 }
 
+// Kiểm tra xem có thẻ hợp lệ không
 bool HalRFID::checkTag() {
-    // Phải có thẻ mới VÀ đọc được thẻ đó
+    // Điều kiện: Phải có thẻ mới đặt vào VÀ đọc được dữ liệu thẻ đó
     if (!mfrc522->PICC_IsNewCardPresent() || !mfrc522->PICC_ReadCardSerial()) {
         return false;
     }
     return true;
 }
 
+// Lấy mã UID của thẻ và chuyển sang dạng chuỗi HEX 
 String HalRFID::getTagUID() {
     String uidString = "";
     for (byte i = 0; i < mfrc522->uid.size; i++) {
         if (mfrc522->uid.uidByte[i] < 0x10) {
-            uidString += "0"; // Thêm số 0 nếu hex chỉ có 1 ký tự
+            uidString += "0"; // Thêm số 0 đằng trước nếu số hex chỉ có 1 ký tự 
         }
         uidString += String(mfrc522->uid.uidByte[i], HEX);
     }
-    uidString.toUpperCase();
+    uidString.toUpperCase(); // Chuyển thành chữ hoa cho đẹp
     
-    // Halt thẻ để không đọc lại liên tục thẻ cũ
+    // Ngắt giao tiếp với thẻ hiện tại để tránh đọc lại liên tục thẻ cũ
     mfrc522->PICC_HaltA();
     mfrc522->PCD_StopCrypto1();
     

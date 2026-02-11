@@ -4,64 +4,83 @@
 #include <Arduino.h>
 #include <vector>
 
-// Cấu trúc của một sản phẩm trong kho
+// -------------------------------------------------------------------------
+// CẤU TRÚC DỮ LIỆU SẢN PHẨM
+// Mô tả các thuộc tính cơ bản của một sản phẩm trong kho
+// -------------------------------------------------------------------------
 struct Product {
-    String name;
-    int quantity;
-    double price;
-    String rfid; 
-    // Khởi tạo 1 Product bất kỳ đảm bảo 4 thuộc tính
+    String name;    // Tên sản phẩm
+    int quantity;   // Số lượng tồn kho
+    double price;   // Đơn giá
+    String rfid;    // Mã thẻ RFID gắn với sản phẩm
+
+    // Constructor: Khởi tạo 1 Product với đầy đủ 4 thuộc tính
     Product(String n, int q, double p, String id) 
         : name(n), quantity(q), price(p), rfid(id) {}
 };
-// Cấu trúc quản lý kho
+
+// -------------------------------------------------------------------------
+// LỚP QUẢN LÝ KHO (INVENTORY MANAGER)
+// Chịu trách nhiệm thao tác trực tiếp với danh sách sản phẩm (vector)
+// -------------------------------------------------------------------------
 class InventoryManager {
 private:
-// Cơ sở dữ liêu của Product
+    // Cơ sở dữ liệu lưu trữ danh sách sản phẩm (sử dụng std::vector để linh hoạt kích thước)
     std::vector<Product> database;
 
 public:
-    // Hàm khởi tạo kho không cần điều kiện
+    // Hàm khởi tạo mặc định (không cần tham số)
     InventoryManager() {}
 
-    // Lấy số lượng sản phẩm
+    // Trả về tổng số lượng loại sản phẩm đang có trong kho
     int size() const { return database.size(); }
 
-    // Lấy tên của Product tại chỉ số index
+    // --- CÁC HÀM GETTER (Lấy thông tin an toàn) ---
+    
+    // Lấy tên sản phẩm tại vị trí index (có kiểm tra giới hạn mảng)
     String getProductName(int index) { 
         if(index < 0 || index >= database.size()) return "";
         return database[index].name; 
     }
-    // Lấy số lượng của Product tại chỉ số index
+
+    // Lấy số lượng sản phẩm tại vị trí index
     int getProductQuantity(int index) { 
         if(index < 0 || index >= database.size()) return 0;
         return database[index].quantity; 
     }
-    // Lấy giá của Product tại chỉ số index
+
+    // Lấy giá sản phẩm tại vị trí index
     double getProductPrice(int index) { 
         if(index < 0 || index >= database.size()) return 0.0;
         return database[index].price; 
     }
-    // Lấy RFID của Product tại chỉ số index
+
+    // Lấy mã RFID của sản phẩm tại vị trí index
     String getProductRFID(int index) {
         if(index < 0 || index >= database.size()) return "";
         return database[index].rfid;
     }
 
-    // Cập nhật số lượng (An toàn, không cho phép số âm)
+    // --- CÁC HÀM SETTER / UPDATE (Cập nhật dữ liệu) ---
+
+    // Cập nhật số lượng mới cho sản phẩm tại index
+    // Tính năng an toàn: Tự động chuyển về 0 nếu giá trị nhập vào là số âm
     void updateQuantity(int index, int newQty) {
         if(index >= 0 && index < database.size()) {
-            if (newQty < 0) newQty = 0; // Chặn lỗi số âm tại đây
+            if (newQty < 0) newQty = 0; // Chặn lỗi logic số âm
             database[index].quantity = newQty;
         }
     }
 
-    // Thêm sản phẩm mới
+    // Thêm một sản phẩm mới hoàn toàn vào cuối danh sách
     void addProduct(String name, int qty, double price, String rfid) {
         database.push_back(Product(name, qty, price, rfid));
     }
 
-    // Tìm kiếm theo RFID
+    // --- CÁC HÀM TÌM KIẾM (SEARCH) ---
+
+    // Tìm vị trí (index) của sản phẩm dựa trên mã RFID
+    // Trả về: index nếu tìm thấy, -1 nếu không tìm thấy
     int findIndexByRFID(String rfidObj) {
         for(int i = 0; i < database.size(); i++) {
             if(database[i].rfid.equalsIgnoreCase(rfidObj)) {
@@ -71,7 +90,8 @@ public:
         return -1;
     }
     
-    // Tìm kiếm theo Tên (cho Web)
+    // Tìm vị trí (index) của sản phẩm dựa trên Tên (Dùng cho thao tác trên Web)
+    // Trả về: index nếu tìm thấy, -1 nếu không tìm thấy
     int findIndexByName(String nameObj) {
         for(int i = 0; i < database.size(); i++) {
             if(database[i].name.equalsIgnoreCase(nameObj)) {

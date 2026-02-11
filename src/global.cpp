@@ -1,43 +1,38 @@
 #include "global.h"
 
-// --- BIẾN CẤU HÌNH ---
-String WIFI_SSID = "THD";
-String WIFI_PASS = "hcmutk23@";
-String CORE_IOT_TOKEN = "";
-String CORE_IOT_SERVER = "192.168.1.5";
-String CORE_IOT_PORT = "1883";
-
-// --- QUẢN LÝ KHO ---
+// --- KHỞI TẠO QUẢN LÝ KHO ---
+// Cấp phát bộ nhớ cho đối tượng quản lý kho
 InventoryManager* myWarehouse = new InventoryManager();
-SemaphoreHandle_t xInventoryMutex = xSemaphoreCreateMutex(); // Tạo khóa
 
-// --- TRẠNG THÁI ---
+// Tạo Mutex (Khóa) để bảo vệ dữ liệu kho khi nhiều Task cùng truy cập
+SemaphoreHandle_t xInventoryMutex = xSemaphoreCreateMutex(); 
+
+// --- KHỞI TẠO BIẾN TRẠNG THÁI ---
 String lastScannedRFID = "";
 bool hasNewTag = false;
-int currentSystemMode = 0; // 0: Check, 1: Import, 2: Export
-// --- CẢM BIẾN NHIỆT ĐỘ & ĐỘ ẨM ---
+int currentSystemMode = 0; // Mặc định là chế độ kiểm tra (Check)
+
+// --- KHỞI TẠO BIẾN CẢM BIẾN ---
 float currentTemperature = 0.0;
 float currentHumidity = 0.0;
-// --- THÊM KHỞI TẠO ---
-float anomalyScore = 0.0;
-bool isAnomaly = false;
+
+// --- KHỞI TẠO BIẾN MẠNG ---
 boolean isWifiConnected = false;
+
+// Tạo Binary Semaphore (dùng như một lá cờ báo hiệu sự kiện)
 SemaphoreHandle_t xBinarySemaphoreInternet = xSemaphoreCreateBinary();
-// --- HÀM ĐIỀU KHIỂN LED ---
+
+// Hàm điều khiển đèn LED dựa trên chế độ hoạt động (Mode)
 void updateLeds(){
+    // Tắt hết đèn trước
     digitalWrite(PIN_LED_CHECK, LOW);
     digitalWrite(PIN_LED_IMPORT, LOW);      
     digitalWrite(PIN_LED_SELL, LOW);
 
+    // Bật đèn tương ứng với Mode
     switch(currentSystemMode){
-        case 0: //CHECK
-            digitalWrite(PIN_LED_CHECK, HIGH);
-            break;
-        case 1: //IMPORT
-            digitalWrite(PIN_LED_IMPORT, HIGH);
-            break;
-        case 2: //EXPORT
-            digitalWrite(PIN_LED_SELL, HIGH);
-            break;
+        case 0: digitalWrite(PIN_LED_CHECK, HIGH); break;  // Mode Check
+        case 1: digitalWrite(PIN_LED_IMPORT, HIGH); break; // Mode Import
+        case 2: digitalWrite(PIN_LED_SELL, HIGH); break;   // Mode Export
     }
 }

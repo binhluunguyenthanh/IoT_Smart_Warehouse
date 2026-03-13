@@ -1,39 +1,88 @@
-let gateway = `ws://${window.location.hostname}/ws`;
-let websocket;
+// ==========================================
+// CẤU HÌNH ADAFRUIT IO
+// ==========================================
+const AIO_USERNAME = ""; 
+const AIO_KEY = "";    
+const BASE_URL = ``;
+
 let inventoryData = [];
 let scanCount = 0;
 let chartRev, chartPie;
 
-window.onload = () => { initWebSocket(); fetchData(); };
+window.onload = () => { 
+    // Trạng thái ban đầu
+    document.getElementById('connStatus').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang kết nối...';
+    document.getElementById('connStatus').className = "fw-bold text-warning";
+    
+    fetchData(); 
+   
+};
 
-function initWebSocket() {
-    websocket = new WebSocket(gateway);
-    websocket.onopen = () => {
-        document.getElementById('connStatus').innerHTML = '<i class="fa-solid fa-wifi"></i> Đã kết nối';
-        document.getElementById('connStatus').className = "fw-bold text-success";
-    };
-    websocket.onclose = () => {
-        document.getElementById('connStatus').innerHTML = '<i class="fa-solid fa-wifi"></i> Mất kết nối';
-        document.getElementById('connStatus').className = "fw-bold text-danger";
-        setTimeout(initWebSocket, 2000);
-    };
-    websocket.onmessage = (event) => {
-        let msg = event.data;
-        if(msg.startsWith("RFID:")) {
-            let id = msg.substring(5);
-            document.getElementById('lastRfid').innerText = id;
-            document.getElementById('scanCount').innerText = ++scanCount;
-            Swal.fire({ icon: 'info', title: 'Đã quét thẻ', text: id, toast: true, position: 'top-end', timer: 1500, showConfirmButton: false });
-            fetchData();
-        } else if (msg.startsWith("MODE:")) {
-            updateModeUI(parseInt(msg.substring(5)));
-        } else if (msg.startsWith("SENSOR:")) {
-            let parts = msg.split(":");
-            updateSensorUI(parseFloat(parts[1]), parseFloat(parts[2]));
+// ==========================================
+// CÁC HÀM GIAO TIẾP VỚI CLOUD
+// ==========================================
+async function getFeed(feedName) {
+    try {
+        let res = await fetch(`${BASE_URL}/${feedName}/data/last`, { headers: { 'X-AIO-Key': AIO_KEY } });
+        if(res.ok) {
+            let json = await res.json();
+            return json.value;
         }
-    };
+    } catch(e) { }
+    return null;
 }
 
+async function postFeed(feedName, value) {
+    try {
+        await fetch(`${BASE_URL}/${feedName}/data`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-AIO-Key': AIO_KEY },
+            body: JSON.stringify({ datum: { value: value } })
+        });
+    } catch(e) { console.error("Lỗi POST data:", e); }
+}
+
+async function fetchData() {
+    try {
+        // 1. Lấy Sensor
+        let temp = await getFeed("iot-temp"); // Đã sửa tên feed
+        let humi = await getFeed("iot-humi"); // Đã sửa tên feed
+        if(temp !== null && humi !== null) {
+            updateSensorUI(parseFloat(temp), parseFloat(humi));
+        }
+
+        // 2. Lấy RFID
+        let rfid = await getFeed("iot-rfid"); // Đã sửa tên feed
+        // ... (Giữ nguyên đoạn code xử lý rfid) ...
+
+        // 3. Lấy Mode từ Cloud để đồng bộ UI
+        let currentMode = await getFeed("iot-mode"); // Đã sửa tên feed
+        if(currentMode !== null) updateModeUI(parseInt(currentMode));
+
+        // 4. Lấy Database kho hàng
+        let dbStr = await getFeed("iot-database");
+        if(dbStr) {
+            let newData = JSON.parse(dbStr);
+            // Chỉ vẽ lại Bảng và Biểu đồ nếu dữ liệu thực sự có sự thay đổi
+            if(JSON.stringify(newData) !== JSON.stringify(inventoryData)) {
+                inventoryData = newData;
+                renderTable();
+                renderCharts();
+            }
+        }
+
+        // Báo kết nối thành công
+        document.getElementById('connStatus').innerHTML = '<i class="fa-solid fa-cloud"></i> Đã kết nối Cloud';
+        document.getElementById('connStatus').className = "fw-bold text-success";
+    } catch (error) {
+        document.getElementById('connStatus').innerHTML = '<i class="fa-solid fa-wifi"></i> Mất kết nối';
+        document.getElementById('connStatus').className = "fw-bold text-danger";
+    }
+}
+
+// ==========================================
+// CÁC HÀM CẬP NHẬT GIAO DIỆN (GIỮ NGUYÊN BẢN GỐC)
+// ==========================================
 function updateSensorUI(temp, hum) {
     document.getElementById('valTempText').innerText = temp.toFixed(1) + " °C";
     document.getElementById('valHumText').innerText = hum.toFixed(0) + " %";
@@ -61,14 +110,6 @@ function updateSensorUI(temp, hum) {
     let iconBoxH = document.getElementById('iconBoxHum');
     iconBoxH.style.color = humColor;
     iconBoxH.style.backgroundColor = `rgba(0, 150, 255, 0.1)`;
-}
-
-function fetchData() {
-    fetch('/data').then(res => res.json()).then(data => {
-        inventoryData = data;
-        renderTable();
-        renderCharts();
-    });
 }
 
 function renderTable() {
@@ -104,22 +145,13 @@ function renderCharts() {
     chartPie.render();
 }
 
-function setMode(mode) { fetch('/setmode?val=' + mode); updateModeUI(mode); }
 function updateModeUI(mode) {
     document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById('btn-mode-' + mode).classList.add('active');
+    let btn = document.getElementById('btn-mode-' + mode);
+    if(btn) btn.classList.add('active');
     let txt = ["CHECK", "IMPORT", "EXPORT"];
-    document.getElementById('sysModeBadge').innerText = "MODE: " + txt[mode];
-}
-
-function manualAction(type) {
-    let name = document.getElementById(type === 'IMPORT' ? 'imName' : 'exName').value;
-    let qty = document.getElementById(type === 'IMPORT' ? 'imQty' : 'exQty').value;
-    let rfid = type === 'IMPORT' ? (document.getElementById('imRfid').value || "0") : "0";
-    if(!name) return Swal.fire('Lỗi', 'Nhập tên sản phẩm', 'error');
-    fetch(`/action?type=${type}&name=${name}&qty=${qty}&rfid=${rfid}`).then(() => {
-        Swal.fire('Thành công', 'Đã gửi lệnh ' + type, 'success'); fetchData();
-    });
+    let badge = document.getElementById('sysModeBadge');
+    if(badge) badge.innerText = "MODE: " + txt[mode];
 }
 
 function toggleSidebar() {
@@ -128,9 +160,89 @@ function toggleSidebar() {
         document.getElementById('overlay').classList.toggle('active');
     }
 }
+
 function showSection(id, el) {
     document.querySelectorAll('.page-section').forEach(d => d.classList.add('d-none'));
-    document.getElementById(id).classList.remove('d-none');
+    let target = document.getElementById(id);
+    if(target) target.classList.remove('d-none');
     document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-    el.classList.add('active');
+    if(el) el.classList.add('active');
 }
+
+// ==========================================
+// CÁC HÀM GỬI LỆNH ĐIỀU KHIỂN
+// ==========================================
+function setMode(mode) { 
+    postFeed("iot-mode", mode);
+    updateModeUI(mode); 
+}
+
+function manualAction(type) {
+    let name = document.getElementById(type === 'IMPORT' ? 'imName' : 'exName').value;
+    let qty = document.getElementById(type === 'IMPORT' ? 'imQty' : 'exQty').value;
+    let rfid = type === 'IMPORT' ? (document.getElementById('imRfid').value || "0") : "0";
+    
+    if(!name) return Swal.fire('Lỗi', 'Nhập tên sản phẩm', 'error');
+    
+   // Đóng gói chuỗi hành động để gửi lên Cloud (Ví dụ: IMPORT:BanhQuy:5:0)
+    let actionStr = `${type}:${name}:${qty}:${rfid}`;
+    
+    postFeed("iot-action", actionStr).then(() => { // Đã sửa tên feed
+        Swal.fire('Thành công', 'Đã gửi lệnh ' + type, 'success'); 
+        fetchData(); // Quét lại để cập nhật bảng
+    });
+}
+// ==========================================
+// KẾT NỐI MQTT WEBSOCKETS (REAL-TIME)
+// ==========================================
+const mqttClient = mqtt.connect('wss://io.adafruit.com:443/mqtt', {
+    username: AIO_USERNAME,
+    password: AIO_KEY
+});
+
+mqttClient.on('connect', function () {
+    console.log("Đã kết nối MQTT WebSockets!");
+    document.getElementById('connStatus').innerHTML = '<i class="fa-solid fa-bolt"></i> Đã kết nối Real-time';
+    document.getElementById('connStatus').className = "fw-bold text-success";
+
+    // Đăng ký nhận thông báo từ các feed (Cú pháp của Adafruit: username/f/feedname)
+    mqttClient.subscribe(`${AIO_USERNAME}/f/iot-temp`);
+    mqttClient.subscribe(`${AIO_USERNAME}/f/iot-humi`);
+    mqttClient.subscribe(`${AIO_USERNAME}/f/iot-rfid`);
+    mqttClient.subscribe(`${AIO_USERNAME}/f/iot-database`);
+    mqttClient.subscribe(`${AIO_USERNAME}/f/iot-mode`);
+});
+
+// Sự kiện được kích hoạt NGAY LẬP TỨC khi có dữ liệu mới trên Cloud
+mqttClient.on('message', function (topic, message) {
+    let val = message.toString();
+    let feed = topic.split('/').pop(); // Lấy tên feed ở cuối đoạn URL
+
+    if (feed === 'iot-temp') {
+        let currentHum = parseFloat(document.getElementById('valHumText').innerText) || 0;
+        updateSensorUI(parseFloat(val), currentHum);
+    } 
+    else if (feed === 'iot-humi') {
+        let currentTemp = parseFloat(document.getElementById('valTempText').innerText) || 0;
+        updateSensorUI(currentTemp, parseFloat(val));
+    } 
+    else if (feed === 'iot-rfid') {
+        let rfidEl = document.getElementById('lastRfid');
+        if (val && val !== rfidEl.innerText && val !== "0") {
+            rfidEl.innerText = val;
+            document.getElementById('scanCount').innerText = ++scanCount;
+            Swal.fire({ icon: 'info', title: 'Đã quét thẻ', text: val, toast: true, position: 'top-end', timer: 1500, showConfirmButton: false });
+        }
+    } 
+    else if (feed === 'iot-database') {
+        let newData = JSON.parse(val);
+        if (JSON.stringify(newData) !== JSON.stringify(inventoryData)) {
+            inventoryData = newData;
+            renderTable();
+            renderCharts();
+        }
+    } 
+    else if (feed === 'iot-mode') {
+        updateModeUI(parseInt(val));
+    }
+});

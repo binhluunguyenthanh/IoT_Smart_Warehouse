@@ -1,20 +1,10 @@
-#ifndef __TASK_WIFI_H__
-#define __TASK_WIFI_H__
+#ifndef TASK_WIFI_TIME_H
+#define TASK_WIFI_TIME_H
 
-#include <WiFi.h>
-#include <ESPAsyncWebServer.h> 
-#include "check_info.h"
-#include "global.h"
+#include <Arduino.h>
 
-// Hàm thực thi chính của Task WiFi (giám sát trạng thái kết nối)
-void TaskWifiFunc(void *pvParameters);
-
-// Chạy chế độ Access Point (Phát Wifi để cấu hình)
-// Dùng khi chưa có thông tin Wifi hoặc không kết nối được
-void runAPMode();
-
-// Chạy chế độ Station (Kết nối vào Router Wifi có sẵn)
-// Dùng để hoạt động bình thường
-void runSTAMode();
+// Hàm thực thi chính của Task Wifi & Time (chạy trong FreeRTOS)
+// Nhiệm vụ: Kết nối Wifi, lấy giờ chuẩn quốc tế (NTP) và cập nhật hệ thống
+void TaskWifiTimeFunc(void *pvParameters);
 
 #endif

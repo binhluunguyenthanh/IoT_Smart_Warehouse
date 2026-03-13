@@ -9,8 +9,6 @@ HalRFID::HalRFID() {
 void HalRFID::init() {
     SPI.begin();         // Khởi động bus SPI
     mfrc522->PCD_Init(); // Khởi động chip RC522
-    // Có thể chỉnh gain (độ nhạy) ăng ten nếu cần:
-    // mfrc522->PCD_SetAntennaGain(mfrc522->RxGain_max);
 }
 
 // Kiểm tra xem có thẻ hợp lệ không
